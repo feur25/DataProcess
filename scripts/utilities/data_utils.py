@@ -43,7 +43,7 @@ def verify_column_exists(df, col_name):
 def load_data(file_path, limit : int = 100000):
     """ Charge le fichier CSV avec les bonnes options et affiche les colonnes disponibles. """
     try:
-        df = pd.read_csv(file_path, sep="\t", encoding="utf-8", on_bad_lines="skip")
+        df = pd.read_csv(file_path, sep="\t", encoding="utf-8", nrows=limit, on_bad_lines="skip")
 
         if df.shape[1] == 1:
             print("⚠️ Alerte : Le CSV semble mal séparé. Tentative avec ';' comme séparateur.")
