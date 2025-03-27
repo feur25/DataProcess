@@ -15,9 +15,11 @@ Primary Functions & Classes:
 import pandas as pd
 import numpy as np
 from termcolor import colored
+
 from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import KNNImputer, SimpleImputer, IterativeImputer
 from sklearn.linear_model import LinearRegression
+
 import difflib
 from functools import lru_cache
 import numba
@@ -107,12 +109,15 @@ class DataFrameProcessor(object):
         @param kwargs: Additional keyword arguments for the KNNImputer
         """
         numeric_cols = self.df.select_dtypes(include=[np.number]).columns
+        self.df[numeric_cols] = self.df[numeric_cols].apply(pd.to_numeric, downcast='float')
         non_numeric_cols = self.df.select_dtypes(exclude=[np.number]).columns
 
         if numeric_cols.empty: return
 
         if self.df[numeric_cols].isnull().all().all(): return
-        
+        if self.df[numeric_cols].shape[0] * self.df[numeric_cols].shape[1] > 1e7:
+            raise MemoryError("DataFrame too large for KNN imputation. Consider reducing its size.")
+        imputer = KNNImputer(n_neighbors=n_neighbors, weights=weights, metric=metric, **kwargs)
         imputer = KNNImputer(n_neighbors=n_neighbors, weights=weights, metric=metric, **kwargs)
         self.df[numeric_cols] = imputer.fit_transform(self.df[numeric_cols])
 
@@ -363,13 +368,9 @@ class AdvancedDataFrameProcessor(DataFrameProcessor):
             if self.df[col].isnull().any():
                 return col
         return ""
-    
-    def _start_function(self, method : str, methods : list, **kwargs) -> None:
-        for method in methods:
-            self.__call_methods__(method, **kwargs)
 
     @log_action("🔄 Imputation of missing values")
-    def impute_missing_values(self, method='knn', missing_threshold=0.5, strategy="mean", col: str = "", **kwargs) -> None:
+    def impute_missing_values(self, method='knn', strategy="mean", col: str = "", **kwargs) -> None:
         """
         Impute missing values using the specified method based on the percentage of missing values.
         
@@ -394,7 +395,7 @@ class AdvancedDataFrameProcessor(DataFrameProcessor):
         print(f"🔄 Imputation en cours sur la colonne : '{col}'")
 
         methods_of_this_function = {
-            'knn': lambda: self._knn_imputation(missing_threshold=kwargs.get('missing_threshold', missing_threshold), **kwargs),
+            'knn': lambda: self._knn_imputation(**kwargs),
             'frequent': lambda: self._simple_imputation(strategy='most_frequent'),
             'iterative': lambda: IterativeImputer(**kwargs),
             'cca': lambda: self._cca_imputation(col=col),
@@ -404,12 +405,11 @@ class AdvancedDataFrameProcessor(DataFrameProcessor):
             'simple': lambda: self._simple_imputation(strategy=strategy)
         }
 
-        method = method.lower()
-        
-        if method in methods_of_this_function:
+        try:
             methods_of_this_function[method]()
-        else:
-            raise ValueError(f"❌ Méthode '{method}' non reconnue. Méthodes possibles : {list(methods_of_this_function.keys())}")
+        except MemoryError as e:
+            print(f"❌ MemoryError during '{method}' imputation: {e}")
+            print("⚠️ Consider reducing the DataFrame size or using a simpler imputation method.")
         
     @log_action("🔍 Filtering irrelevant columns")
     def filter_irrelevant_columns(self, methods=['variance', 'missing_values', 'correlation'], **kwargs) -> None:

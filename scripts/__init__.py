@@ -162,7 +162,7 @@ def pars_args_data_frame_processor(args: list) -> None:
 
     processor = AdvancedDataFrameProcessor(args.file_path)
 
-    processor.impute_missing_values(method='linear_regression')
+    processor.impute_missing_values(method='knn')
 
     processor.df.to_csv(args.output_path, index=False)
 
