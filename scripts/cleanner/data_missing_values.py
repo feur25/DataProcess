@@ -184,8 +184,8 @@ class DataFrameProcessor(object):
 
         if known_df.shape[0] == 0: return
 
-        X_train = known_df[feature_cols]
-        y_train = known_df[col]
+        X_train = known_df[feature_cols].dropna()
+        y_train = known_df.loc[X_train.index, col]
 
         if X_train.shape[0] == 0: return
 

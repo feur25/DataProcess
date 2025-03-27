@@ -33,6 +33,7 @@ class Plotting(object):
     @log_action("📊 Histogram Plot: generated")
     def _histogram_ploting(self, data, col, axes) -> None:
         sns.histplot(data, kde=True, bins=self.bins, color='skyblue', stat='density', ax=axes)
+        
         axes.set_title(f'Histogram & KDE for {col}', fontsize=14)
         axes.set_xlabel(col, fontsize=12)
         axes.set_ylabel('Density', fontsize=12)
@@ -40,6 +41,7 @@ class Plotting(object):
     @log_action("📊 Box Plot: generated")
     def _boxplot_ploting(self, data, col, axes) -> None:
         sns.boxplot(x=data, color='lightgreen', ax=axes)
+
         axes.set_title(f'Boxplot for {col}', fontsize=14)
         axes.set_xlabel(col, fontsize=12)
 
