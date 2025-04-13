@@ -370,7 +370,7 @@ class AdvancedDataFrameProcessor(DataFrameProcessor):
         return ""
 
     @log_action("🔄 Imputation of missing values")
-    def impute_missing_values(self, method='knn', strategy="mean", col: str = "", **kwargs) -> None:
+    def impute_missing_values(self, method='frequent', strategy="mean", col: str = "", **kwargs) -> None:
         """
         Impute missing values using the specified method based on the percentage of missing values.
         

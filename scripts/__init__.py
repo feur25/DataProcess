@@ -1,4 +1,5 @@
 import argparse
+import os
 
 from .utilities.data_processing import ApplyFunctionThread
 
@@ -54,6 +55,7 @@ def main(description: str, parser: argparse.ArgumentParser) -> argparse.Namespac
 
     parser.add_argument("--function", type=int, default=0, required=True, help="0 for PCA, 1 for Outliers, 2 for Visualization, 3 for Scaling, 4 for Encoding, 5 for Data Cleaning, 6 for Clustering")
     parser.add_argument("--file_path", type=str, required=True, help="Chemin vers le fichier CSV")
+    parser.add_argument("--limit", type=int, default=1000, help="Limite de lignes à traiter")
 
     parser.add_argument("--output_path", type=str, default="cleaned_data.csv", help="Chemin du fichier de sortie")
     parser.add_argument("--missing_threshold", type=float, default=0.5, help="Seuil de valeurs manquantes pour supprimer une colonne")
@@ -160,11 +162,15 @@ def pars_args_data_frame_processor(args: list) -> None:
 
     if not args.function == 5: return
 
-    processor = AdvancedDataFrameProcessor(args.file_path)
+    processor = AdvancedDataFrameProcessor(args.file_path, args.limit)
 
     processor.impute_missing_values(method='frequent')
 
-    processor.df.to_csv(args.output_path, index=False)
+    output_path = args.output_path
+    if os.path.isdir(output_path):
+        output_path = os.path.join(output_path, "cleaned_data.csv")
+
+    processor.df.to_csv(output_path, index=False)
 
     print(f"✅ Cleaned data saved to {args.output_path}")
 
