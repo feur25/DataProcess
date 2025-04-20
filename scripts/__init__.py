@@ -1,6 +1,7 @@
 import argparse
 import os
-
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
 from .utilities.data_processing import ApplyFunctionThread
 
 from .encoder.data_encoder import FeatureEncoder
@@ -164,7 +165,7 @@ def pars_args_data_frame_processor(args: list) -> None:
 
     processor = AdvancedDataFrameProcessor(args.file_path, args.limit)
 
-    processor.impute_missing_values(method='frequent')
+    processor.impute_missing_values(method='linear_regression')
 
     output_path = args.output_path
     if os.path.isdir(output_path):
@@ -178,10 +179,9 @@ def pars_args_data_clustering(args: list) -> None:
     parser = argparse.ArgumentParser()
     args = main("Data Clustering Script", parser)
 
-    if not args.function == 6: return
+    if not args.function == 6: 
+        return
 
-    processor = KmeansFeature(args.file_path, 10)
-
+    processor = KmeansFeature(args.file_path, 10)  # Passe juste le file_path maintenant
     processor._run_clustering()
-
     print(f"✅ Cleaned data saved to {args.output_path}")

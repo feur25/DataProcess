@@ -102,9 +102,22 @@ class DimensionalityReduction(object):
             return methods_of_the_function[self.method]()
         else:
             raise ValueError("Invalid method. Choose from 'PCA', 'SVD', 't-SNE', 'Isomap'.")
+        
+    def preprocess_data(self, data: pd.DataFrame, target_col: str) -> pd.DataFrame:
+        numeric_data = data.select_dtypes(include=[np.number])
+        
+        categorical_data = data.select_dtypes(exclude=[np.number])
+        encoded_data = pd.get_dummies(categorical_data)
+        
+        processed_data = pd.concat([numeric_data, encoded_data], axis=1)
+        
+        processed_data = processed_data.drop(target_col, axis=1, errors='ignore')
+
+        return processed_data
 
     def scale_data(self) -> None:
         """Standardize the data for dimensionality reduction."""
+        self.data = self.preprocess_data(self.data, self.target)
         self.scaled_data = self.scaler.fit_transform(self.data)
         print("Data normalized.")
 

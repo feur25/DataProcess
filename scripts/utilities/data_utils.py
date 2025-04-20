@@ -40,24 +40,14 @@ def verify_column_exists(df, col_name):
         matches = difflib.get_close_matches(col_name, df.columns, n=5, cutoff=0.4)
         raise ValueError(f"⚠️ Colonne '{col_name}' introuvable. Suggestions proches : {matches}")
 
-def load_data(file_path, limit : int = 100000):
-    """ Charge le fichier CSV avec les bonnes options et affiche les colonnes disponibles. """
+def load_data(file_path: str) -> pd.DataFrame:
     try:
-        df = pd.read_csv(file_path, sep="\t", encoding="utf-8", nrows=limit, on_bad_lines="skip")
-
-        if df.shape[1] == 1:
-            print("⚠️ Alerte : Le CSV semble mal séparé. Tentative avec ';' comme séparateur.")
-            df = pd.read_csv(file_path, sep=";", encoding="utf-8", nrows=limit)
-
-        df.columns = df.columns.str.strip().str.lower()
-
-        print(f"📂 Fichier chargé : {file_path}")
-        print(f"📊 Dimensions du DataFrame: {df.shape}")
-        print(f"🔍 Colonnes disponibles : {df.columns.tolist()}")
+        df = pd.read_csv(file_path, sep=",", encoding="utf-8")
         return df
     except Exception as e:
-        print(f"❌ Erreur lors du chargement du fichier : {e}")
-        return None
+        print(f"Erreur lors du chargement du fichier : {e}")
+        raise
+
 
 def get_numeric_columns(df: pd.DataFrame) -> list:
     """

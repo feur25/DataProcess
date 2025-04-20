@@ -22,7 +22,6 @@ try :
     from sklearn.cluster import KMeans
     from category_encoders import HashingEncoder, CountEncoder
     from scipy import sparse
-    import pytest
     from category_encoders import HashingEncoder, CountEncoder, TargetEncoder, LeaveOneOutEncoder
     import matplotlib.pyplot as plt
     import seaborn as sns
@@ -40,7 +39,7 @@ class DataEncoder(object):
         self.log = []
 
     @classmethod
-    def from_csv(cls, file_path: str, target_col: str, limit: int = 1000) -> 'FeatureEncoder':
+    def from_csv(cls, file_path: str, target_col: str, limit: int = 100000) -> 'FeatureEncoder':
         df = load_data(file_path, limit)
         return cls(df, target_col)
 

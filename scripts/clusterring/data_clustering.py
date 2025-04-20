@@ -101,6 +101,8 @@ class PreProcessing(DataClustering):
 
     def _processing_matrix_data(self) -> list:
         col100g = [col for col in self.df.columns if "_100g" in col]
+        if not col100g:
+            raise ValueError("Aucune colonne avec '_100g' trouvée. Vérifiez vos données.")
         data_100g = self.df[col100g]
 
         corr_matrix = data_100g.corr().abs()
@@ -167,109 +169,154 @@ class GMMFeature(DataClustering):
 #         return best_eps, best_min_samples
 
 class KmeansFeature(PreProcessing):
-    def __init__(self, df, num_clusters, scaler, reducer):
-        super().__init__(df, num_clusters)
-        self.preprocessing = PreProcessing(scaler, reducer)
+    def __init__(self, file_path, num_clusters=10, scaler=StandardScaler(), reducer=PCA):
+        # Charge les données et filtre les colonnes numériques avec _100g
+        df = load_data(file_path)
+        numeric_cols = [col for col in df.columns 
+                       if '_100g' in col and pd.api.types.is_numeric_dtype(df[col])]
+        
+        if not numeric_cols:
+            raise ValueError("Aucune colonne numérique avec '_100g' trouvée")
+            
+        self.original_df = df.copy()
+        self.df = df[numeric_cols].dropna()
+        self.num_clusters = num_clusters
+        self.scaler = scaler
+        self.reducer = reducer
+        self.kmeans_model = KMeans(n_clusters=num_clusters)
+        self.data100 = None  # Sera initialisé dans _processing_matrix_data
+
+    def _processing_matrix_data(self) -> pd.DataFrame:
+        """Prétraitement des données et suppression des colonnes corrélées"""
+        if self.df.empty:
+            raise ValueError("Le DataFrame est vide après le filtrage initial")
+        
+        # Suppression des colonnes avec trop de valeurs manquantes
+        data = self.df.dropna(axis=1, thresh=0.7*len(self.df))
+        
+        if data.empty:
+            raise ValueError("Toutes les colonnes ont été supprimées lors du dropna")
+            
+        # Suppression des colonnes trop corrélées
+        corr_matrix = data.corr().abs()
+        upper = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
+        to_drop = [col for col in upper.columns if any(upper[col] > 0.8)]
+        data = data.drop(columns=to_drop)
+        
+        return data
 
     def _train_kmeans(self, *args, **kwargs) -> np.ndarray:
+        """Entraîne le modèle KMeans"""
         return self._train_model(self.kmeans_model, *args, **kwargs)
     
-    @log_action("🔍 Optimize KMeans")
-    def _optimize_kmeans(self, max_clusters: int = 10, distortions : list = []) -> int:
-
-        for _ in range(1, max_clusters + 1):
-            self.kmeans_model.fit(self.df)
-            distortions.append(self.kmeans_model.inertia_)
-            
-        optimal_clusters = 3 if len(distortions) < 3 else np.argmin(np.gradient(np.gradient(distortions)))
-        print(f"Optimal number of clusters (approx): {optimal_clusters}")
-        return optimal_clusters
-
-    def _quantile_result(self, data) -> pd.DataFrame:
+    def _quantile_result(self, data: pd.DataFrame) -> tuple:
+        """Calcule les bornes pour la détection des outliers"""
         Q1 = data.quantile(0.25)
         Q3 = data.quantile(0.75)
         IQR = Q3 - Q1
-
-        lower_bound = Q1 - 1.5 * IQR
-        upper_bound = Q3 + 1.5 * IQR
-
-        return lower_bound, upper_bound
+        return (Q1 - 1.5 * IQR, Q3 + 1.5 * IQR)
 
     @log_action("🔍 KMeans Clustering")
-    def kmeans(self, n_clusters : int = 5, random_state : int = 42) -> pd.DataFrame:
-        data_100g = self._processing_matrix_data()
-        self.data100 = data_100g
+    def kmeans(self, n_clusters: int = 5, random_state: int = 42) -> pd.DataFrame:
+        """Exécute le clustering KMeans complet"""
+        try:
+            self.data100 = self._processing_matrix_data()
+            print(f"Données après prétraitement : {self.data100.shape}")
+            
+            if self.data100.empty:
+                print("⚠️ Aucune donnée valide pour le clustering")
+                return pd.DataFrame()
+                
+            # Suppression des outliers
+            lower, upper = self._quantile_result(self.data100)
+            mask = ~((self.data100 < lower) | (self.data100 > upper)).any(axis=1)
+            self.data100 = self.data100[mask]
+            
+            if self.data100.empty:
+                print("⚠️ Toutes les données ont été filtrées comme outliers")
+                return pd.DataFrame()
+                
+            # Normalisation
+            scaled_data = self.scaler.fit_transform(self.data100)
+            
+            # Clustering
+            self.kmeans_model = KMeans(n_clusters=n_clusters, random_state=random_state)
+            self.data100['cluster'] = self.kmeans_model.fit_predict(scaled_data)
+            
+            print(f"Résultats du clustering :\n{self.data100['cluster'].value_counts()}")
+            return self.data100
+            
+        except Exception as e:
+            print(f"❌ Erreur lors du clustering : {str(e)}")
+            return pd.DataFrame()
 
-        lower_bound, upper_bound = self._quantile_result(self.data100)
-
-        self.data100 = self.data100[~((self.data100 < lower_bound) | (self.data100 > upper_bound)).any(axis=1)]
-
-        scaled_data_100g = self.scaler.fit_transform(self.data100)
-
-        kmeans = KMeans(n_clusters=n_clusters, random_state=random_state)
-
-        self.data100.loc[:, "cluster"] = kmeans.fit_predict(scaled_data_100g)
-
-        print("Inertie du modèle K-Means : ", kmeans.inertia_)
-
-        print(f"Cluster labels: {sorted(set(self.data100['cluster']))}")
-        print(f"Distribution des points par cluster: \n{self.data100['cluster'].value_counts()}")
-
-        return self.data100
-    
     def find_clusters_elbow(self, max_clusters: int = 10) -> None:
+        """Méthode du coude pour déterminer le nombre optimal de clusters"""
+        if self.data100 is None or self.data100.empty:
+            print("⚠️ Aucune donnée disponible pour la méthode du coude")
+            return
+            
+        scaled_data = self.scaler.fit_transform(self.data100)
         inertias = []
-        scaled_data_100g = self.scaler.fit_transform(self.data100)
-
+        
         for i in range(1, max_clusters + 1):
             kmeans = KMeans(n_clusters=i, random_state=42)
-            kmeans.fit(scaled_data_100g)
+            kmeans.fit(scaled_data)
             inertias.append(kmeans.inertia_)
+            
+        self._plot_elbow_curve(inertias)
 
-        plt.figure(figsize=(8, 6))
-
-        plt.plot(range(1, max_clusters + 1), inertias, marker='o', linestyle='--', color='b')
-        plt.title('Elbow Method for Optimal Clusters')
-
-        plt.xlabel('Number of Clusters')
-        plt.ylabel('Inertia')
-
-        plt.grid(True, linestyle='--', alpha=0.6)
+    def plot_kmeans_clusters(self, n_components: int = 2) -> None:
+        """Visualisation des clusters après réduction de dimension"""
+        if self.data100 is None or self.data100.empty:
+            print("⚠️ Aucune donnée disponible pour la visualisation")
+            return
+            
+        scaled_data = self.scaler.fit_transform(self.data100)
+        
+        # Réduction de dimension
+        reduced_data = self.reducer(n_components=n_components).fit_transform(scaled_data)
+        
+        # Création du plot
+        plt.figure(figsize=(10, 6))
+        scatter = plt.scatter(reduced_data[:, 0], reduced_data[:, 1], 
+                             c=self.data100['cluster'], cmap='viridis', alpha=0.6)
+        plt.colorbar(scatter)
+        plt.title("Visualisation des clusters après réduction de dimension")
+        plt.xlabel("Composante 1")
+        plt.ylabel("Composante 2")
         plt.show()
 
-    def plot_kmeans_clusters(self, n_components : int = 5) -> None:
-
-        lower_bound, upper_bound = self._quantile_result(self.data100)
-
-        self.data100 = self.data100[~((self.data100 < lower_bound) | (self.data100 > upper_bound)).any(axis=1)]
-
-        scaled_data_100g = self.scaler.fit_transform(self.data100)
-
-        pca = self.reducer(n_components=n_components)
-        pca_scores = pca.fit_transform(scaled_data_100g)
-
-        self.data100['pca1'] = pca_scores[:, 0]
-        self.data100['pca2'] = pca_scores[:, 1]
-
-        plt.figure(figsize=(8, 6))
-
-        sns.scatterplot(x=self.data100['pca1'], y=self.data100['pca2'], hue=self.data100["cluster"], palette="Set1", alpha=0.7)
-
-        plt.axhline(0, color='grey', linestyle='--', linewidth=0.5)
-        plt.axvline(0, color='grey', linestyle='--', linewidth=0.5)
-
-        plt.xlabel("Composante principale 1")
-        plt.ylabel("Composante principale 2")
-
-        plt.title(f"Nuage de points des données après ACP et K-Means")
-
-        plt.show()   
+    def _plot_elbow_curve(self, distortions: list, 
+                         xlabel: str = "Nombre de clusters",
+                         ylabel: str = "Inertie") -> None:
+        """Trace la courbe du coude"""
+        plt.figure(figsize=(8, 5))
+        plt.plot(range(1, len(distortions)+1), distortions, 'bx-')
+        plt.xlabel(xlabel)
+        plt.ylabel(ylabel)
+        plt.title('Méthode du Coude pour K-Means')
+        plt.grid(True)
+        plt.show()
 
     @log_action("🔍 Run Clustering")
     def _run_clustering(self) -> None:
-        self.kmeans()
-        self.find_clusters_elbow()
-        self.plot_kmeans_clusters()
+        """Exécute le pipeline complet de clustering"""
+        try:
+            # Étape 1: Clustering KMeans
+            clustered_data = self.kmeans()
+            
+            if clustered_data.empty:
+                return
+                
+            # Étape 2: Méthode du coude
+            self.find_clusters_elbow()
+            
+            # Étape 3: Visualisation
+            self.plot_kmeans_clusters()
+            
+        except Exception as e:
+            print(f"❌ Erreur dans le pipeline de clustering : {str(e)}")
 
 class DataFeaturing(KmeansFeature, GMMFeature):
     pass
